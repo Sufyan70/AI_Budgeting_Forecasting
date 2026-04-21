@@ -1,0 +1,18 @@
+{
+  "data_file": "/mnt/data/monthly_amortization_dimensional(1).csv",
+  "value_column": "monthly_amortization",
+  "group_dims": [],
+  "model": "naive",
+  "periods": 6,
+  "budget_adjustment_pct": 5,
+  "rolling_forecast": false,
+  "output_dir": "/mnt/data/work/phase2/output",
+  "events": {
+    "enabled": true,
+    "country": "PK",
+    "include_ramzan": true,
+    "include_eid": true
+  },
+  "ramzan_uplift_pct": 3,
+  "event_uplift_pct": 2
+}

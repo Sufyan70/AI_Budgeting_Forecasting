@@ -1,0 +1,21 @@
+{
+  "data_file": "/mnt/data/monthly_amortization_dimensional(1).csv",
+  "value_column": "monthly_amortization",
+  "group_dims": [],
+  "model": "naive",
+  "periods": 6,
+  "use_calibration": true,
+  "calibration_window": 3,
+  "budget_adjustment_pct": 2,
+  "event_uplift_pct": 1,
+  "management_target_pct": 3,
+  "output_dir": "/mnt/data/phase4_work/output_phase4",
+  "recalc": {
+    "enabled": true,
+    "save_manifest": true,
+    "assumption_sets": [
+      {"run_label": "stretch", "scenario_growth_pct": 5, "management_override_pct": 3},
+      {"run_label": "conservative", "churn_pct": 4, "budget_adjustment_pct": -1}
+    ]
+  }
+}

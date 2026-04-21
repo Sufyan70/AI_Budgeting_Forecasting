@@ -1,0 +1,128 @@
+
+File: /mnt/data/monthly_amortization_dimensional(1).csv
+Rows: 1758 | Freq: MS
+Date column: year_month
+Value columns: ['monthly_amortization', 'monthly_active_members']
+Dimensions: ['category', 'location', 'payment_location', 'payment_status', 'payment_mode', 'membership_product']
+  category: ['DIRECT', 'CORPORATE']
+  location: ['AHP', 'JAP', 'JWM', 'DCP']
+  payment_location: ['POINT OF SALES', 'APP/WEB']
+  payment_status: ['PAID', 'FREE']
+  payment_mode: ['CASH', 'BOTH', 'CARD']
+  membership_product: ['1 MONTH', '3 MONTH', '2 MONTH', '12 MONTH', '6 MONTH']
+
+Series to forecast: 1
+
+--- Total ---
+  Points: 90 | Mean: 1,439,524.72 | Trend: -122.0% | Missing periods: 57
+  Auto events loaded: 346
+  Calibration: {'history_points': 90, 'bias_add': 4.1667, 'bias_ratio': 1.5, 'event_bias_ratio': 1.0, 'series': 'Total'}
+Date          Forecast     Lower    Upper
+----------  ----------  --------  -------
+2033-07-01     22.9167  -182.217  228.051
+2033-08-01     22.9167  -182.217  228.051
+2033-09-01     22.9167  -182.217  228.051
+2033-10-01     22.9167  -182.217  228.051
+2033-11-01     22.9167  -182.217  228.051
+2033-12-01     22.9167  -182.217  228.051
+  Fit accuracy -> MAE: 200,495.07 | MAPE: 719.2%
+  Variance drivers -> Trend: -0.17 | Seasonality: -3.19 | Event: -0.97
+  KPIs: {'fc_mae': None, 'fc_mape': None, 'budget_mae': None, 'budget_mape': None}
+
+Done. Output: /mnt/data/phase4_work/output_phase4/
+  budget.csv
+  budget_forecast_actual.csv
+  budget_forecast_actual_monthly.csv
+  calibration.csv
+  forecast.csv
+  planning_bundle.xlsx
+  run_summary.csv
+  scenarios.csv
+  variance.csv
+
+===== RECALC RUN: stretch =====
+
+File: /mnt/data/monthly_amortization_dimensional(1).csv
+Rows: 1758 | Freq: MS
+Date column: year_month
+Value columns: ['monthly_amortization', 'monthly_active_members']
+Dimensions: ['category', 'location', 'payment_location', 'payment_status', 'payment_mode', 'membership_product']
+  category: ['DIRECT', 'CORPORATE']
+  location: ['AHP', 'JAP', 'JWM', 'DCP']
+  payment_location: ['POINT OF SALES', 'APP/WEB']
+  payment_status: ['PAID', 'FREE']
+  payment_mode: ['CASH', 'BOTH', 'CARD']
+  membership_product: ['1 MONTH', '3 MONTH', '2 MONTH', '12 MONTH', '6 MONTH']
+
+Series to forecast: 1
+
+--- Total ---
+  Points: 90 | Mean: 1,439,524.72 | Trend: -122.0% | Missing periods: 57
+  Auto events loaded: 346
+  Calibration: {'history_points': 90, 'bias_add': 4.1667, 'bias_ratio': 1.5, 'event_bias_ratio': 1.0, 'series': 'Total'}
+Date          Forecast     Lower    Upper
+----------  ----------  --------  -------
+2033-07-01     22.9167  -182.217  228.051
+2033-08-01     22.9167  -182.217  228.051
+2033-09-01     22.9167  -182.217  228.051
+2033-10-01     22.9167  -182.217  228.051
+2033-11-01     22.9167  -182.217  228.051
+2033-12-01     22.9167  -182.217  228.051
+  Fit accuracy -> MAE: 200,495.07 | MAPE: 719.2%
+  Variance drivers -> Trend: -0.17 | Seasonality: -3.19 | Event: -0.97
+  KPIs: {'fc_mae': None, 'fc_mape': None, 'budget_mae': None, 'budget_mape': None}
+
+Done. Output: /mnt/data/phase4_work/output_phase4/stretch/
+  budget.csv
+  budget_forecast_actual.csv
+  budget_forecast_actual_monthly.csv
+  calibration.csv
+  forecast.csv
+  planning_bundle.xlsx
+  run_summary.csv
+  scenarios.csv
+  variance.csv
+
+===== RECALC RUN: conservative =====
+
+File: /mnt/data/monthly_amortization_dimensional(1).csv
+Rows: 1758 | Freq: MS
+Date column: year_month
+Value columns: ['monthly_amortization', 'monthly_active_members']
+Dimensions: ['category', 'location', 'payment_location', 'payment_status', 'payment_mode', 'membership_product']
+  category: ['DIRECT', 'CORPORATE']
+  location: ['AHP', 'JAP', 'JWM', 'DCP']
+  payment_location: ['POINT OF SALES', 'APP/WEB']
+  payment_status: ['PAID', 'FREE']
+  payment_mode: ['CASH', 'BOTH', 'CARD']
+  membership_product: ['1 MONTH', '3 MONTH', '2 MONTH', '12 MONTH', '6 MONTH']
+
+Series to forecast: 1
+
+--- Total ---
+  Points: 90 | Mean: 1,439,524.72 | Trend: -122.0% | Missing periods: 57
+  Auto events loaded: 346
+  Calibration: {'history_points': 90, 'bias_add': 4.1667, 'bias_ratio': 1.5, 'event_bias_ratio': 1.0, 'series': 'Total'}
+Date          Forecast     Lower    Upper
+----------  ----------  --------  -------
+2033-07-01     22.9167  -182.217  228.051
+2033-08-01     22.9167  -182.217  228.051
+2033-09-01     22.9167  -182.217  228.051
+2033-10-01     22.9167  -182.217  228.051
+2033-11-01     22.9167  -182.217  228.051
+2033-12-01     22.9167  -182.217  228.051
+  Fit accuracy -> MAE: 200,495.07 | MAPE: 719.2%
+  Variance drivers -> Trend: -0.17 | Seasonality: -3.19 | Event: -0.97
+  KPIs: {'fc_mae': None, 'fc_mape': None, 'budget_mae': None, 'budget_mape': None}
+
+Done. Output: /mnt/data/phase4_work/output_phase4/conservative/
+  budget.csv
+  budget_forecast_actual.csv
+  budget_forecast_actual_monthly.csv
+  calibration.csv
+  forecast.csv
+  planning_bundle.xlsx
+  run_summary.csv
+  scenarios.csv
+  variance.csv
+Manifest saved: /mnt/data/phase4_work/output_phase4/recalc_manifest.json
