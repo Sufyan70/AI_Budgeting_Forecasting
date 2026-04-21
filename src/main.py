@@ -9,13 +9,14 @@ from tabulate import tabulate
 from calibration import ForecastCalibrator
 from comparison import compute_kpis, merge_bfa
 from config import merge_config, validate_config
-from data_engine import DataEngine
+# from data_engine import DataEngine
+from data_engine import DataEngine, aggregate_series
 from events import EventManager
 from models import EnsembleModel, ProphetModel, SARIMAModel, LGBMModel, NaiveModel
 from planning import RollingForecaster, ScenarioPlanner, VarianceAnalyzer, BudgetGenerator
 from recalc_engine import RecalculationEngine
 from reporting import ReportExporter
-
+from learning import LearningEngine
 
 def inp(prompt, default=None):
     val = input(prompt).strip()
@@ -91,31 +92,102 @@ def _single_run(config):
     engine = DataEngine(filepath)
     engine.load()
     engine.print_info()
+
     value_col = config.get("value_column") or (engine.value_cols[0] if engine.value_cols else None)
     if not value_col:
         raise ValueError("No usable numeric value column found")
+
     group_dims = config.get("group_dims") or []
+    forecast_grain = config.get("forecast_grain", "monthly")
+    aggregation_method = config.get("aggregation_method", "sum")
     output_dir = config.get("output_dir", "./output")
     os.makedirs(output_dir, exist_ok=True)
     exporter = ReportExporter(output_dir)
-    series_list = engine.get_series_list(value_col, group_dims, freq=engine.freq)
+
+    date_col = engine.date_col
+    if not date_col:
+        raise ValueError("No date column detected in input data.")
+
+    agg_df = aggregate_series(
+        engine.raw,
+        date_col=date_col,
+        value_col=value_col,
+        group_dims=group_dims,
+        grain=forecast_grain,
+        method=aggregation_method,
+    )
+
+    if forecast_grain == "daily":
+        model_freq = "D"
+        display_fmt = "%Y-%m-%d"
+    elif forecast_grain == "weekly":
+        model_freq = "W-MON"
+        display_fmt = "%Y-%m-%d"
+    else:
+        model_freq = "MS"
+        display_fmt = "%Y-%m"
+
+    series_list = []
+    if not group_dims:
+        sdf = agg_df.copy()
+        sdf["ds"] = pd.to_datetime(sdf[date_col])
+        sdf["y"] = pd.to_numeric(sdf[value_col], errors="coerce")
+        sdf = sdf[["ds", "y"]].dropna().sort_values("ds").reset_index(drop=True)
+        series_list.append(("Total", sdf))
+    else:
+        for keys, part in agg_df.groupby(group_dims, dropna=False):
+            sdf = part.copy()
+            sdf["ds"] = pd.to_datetime(sdf[date_col])
+            sdf["y"] = pd.to_numeric(sdf[value_col], errors="coerce")
+            sdf = sdf[["ds", "y"]].dropna().sort_values("ds").reset_index(drop=True)
+
+            if isinstance(keys, tuple):
+                label_name = " | ".join(str(x) for x in keys)
+            else:
+                label_name = str(keys)
+
+            series_list.append((label_name, sdf))
+
+    # all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
+    # run_summary = []
     all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
     run_summary = []
+    learning_summary_df = None
+    learning_flags_df = None
     print(f"\nSeries to forecast: {len(series_list)}")
+    print(f"Forecast grain: {forecast_grain} | Aggregation: {aggregation_method}")
+
     for label_name, sdf in series_list:
         print(f"\n--- {label_name} ---")
         info = engine.analyze(sdf)
-        continuity = engine.validate_time_continuity(sdf)
-        print(f"  Points: {info['n']} | Mean: {info['mean']:,.2f} | Trend: {info['trend_pct']:+.1f}% | Missing periods: {continuity['missing_periods']}")
+        continuity = engine.validate_time_continuity(sdf, freq=model_freq)
+        print(
+            f"  Points: {info['n']} | Mean: {info['mean']:,.2f} | "
+            f"Trend: {info['trend_pct']:+.1f}% | Missing periods: {continuity['missing_periods']}"
+        )
+
         if len(sdf) < 6:
             print("  Too few data points, skipping.")
             continue
+
         events_df = build_events(config, sdf)
         if events_df is not None and len(events_df) > 0:
             print(f"  Auto events loaded: {len(events_df)}")
+
         model_name = config.get("model", "ensemble")
         periods = int(config.get("periods", 12))
-        _, fc, fitted = fit_model(model_name, sdf, engine.freq, periods, events_df)
+
+        _, fc, fitted = fit_model(model_name, sdf, model_freq, periods, events_df)
+        hist_fc = None
+        if fitted is not None and len(fitted) > 0:
+            hist_fc = fitted.copy()
+            if "yhat" not in hist_fc.columns:
+                if "forecast" in hist_fc.columns:
+                    hist_fc = hist_fc.rename(columns={"forecast": "yhat"})
+                elif "y" in hist_fc.columns:
+                    hist_fc["yhat"] = hist_fc["y"]
+            hist_fc["series"] = label_name
+
         calibration_profile = None
         if config.get("use_calibration", True) and fitted is not None and len(fitted) > 0:
             calibrator = ForecastCalibrator(window=int(config.get("calibration_window", 6)))
@@ -125,12 +197,26 @@ def _single_run(config):
             row["series"] = label_name
             all_calibration.append(pd.DataFrame([row]))
             print(f"  Calibration: {row}")
+
         fc["series"] = label_name
         all_forecasts.append(fc)
+
+        if hist_fc is not None:
+            bfa_forecast = pd.concat(
+                [
+                    hist_fc[[c for c in ["ds", "yhat", "series"] if c in hist_fc.columns]],
+                    fc[[c for c in ["ds", "yhat", "series"] if c in fc.columns]],
+                ],
+                ignore_index=True,
+            ).drop_duplicates(subset=["ds", "series"], keep="last")
+        else:
+            bfa_forecast = fc.copy()
+
         tbl = fc[["ds", "yhat", "yhat_lower", "yhat_upper"]].copy()
-        tbl["ds"] = tbl["ds"].dt.strftime("%Y-%m-%d")
+        tbl["ds"] = pd.to_datetime(tbl["ds"]).dt.strftime(display_fmt)
         tbl.columns = ["Date", "Forecast", "Lower", "Upper"]
         print(tabulate(tbl.head(10), headers="keys", tablefmt="simple", showindex=False))
+
         scenarios = ScenarioPlanner.generate(
             fc,
             sdf["y"].std(),
@@ -146,30 +232,44 @@ def _single_run(config):
             sc2["series"] = label_name
             sc2["scenario"] = sname
             all_scenarios.append(sc2)
+
         budget = BudgetGenerator.generate(
-            fc,
-            config.get("budget_adjustment_pct", 0.0),
-            config.get("event_uplift_pct", 0.0),
-            config.get("management_target_pct", 0.0),
-        )
+            actuals_df=sdf,
+            forecast_df=fc,
+            seasonal_weight=config.get("budget_seasonal_weight", 0.5),
+            rolling_weight=config.get("budget_rolling_weight", 0.3),
+            trend_weight=config.get("budget_trend_weight", 0.2),
+            rolling_window=config.get("budget_rolling_window", 6),
+)
         budget["series"] = label_name
         all_budgets.append(budget)
+
         variance_stats = {}
         if fitted is not None and len(fitted) > 0:
             variance_df, variance_stats = VarianceAnalyzer.run(sdf, fitted, budget)
             variance_df["series"] = label_name
             all_variances.append(variance_df)
             print(f"  Fit accuracy -> MAE: {variance_stats['fc_mae']:,.2f} | MAPE: {variance_stats['fc_mape']:.1f}%")
-            print(f"  Variance drivers -> Trend: {variance_stats['trend_var_mean']:,.2f} | Seasonality: {variance_stats['seasonality_var_mean']:,.2f} | Event: {variance_stats['event_var_mean']:,.2f}")
-        bfa = merge_bfa(sdf, fc, budget, series_key=label_name)
+            print(
+                f"  Variance drivers -> Trend: {variance_stats['trend_var_mean']:,.2f} | "
+                f"Seasonality: {variance_stats['seasonality_var_mean']:,.2f} | "
+                f"Event: {variance_stats['event_var_mean']:,.2f}"
+            )
+
+        # bfa = merge_bfa(sdf, fc, budget, series_key=label_name)
+        bfa = merge_bfa(sdf, bfa_forecast, budget, series_key=label_name)
         all_bfa.append(bfa)
+
         kpis = compute_kpis(bfa)
         if kpis:
             print(f"  KPIs: {kpis}")
+
         run_summary.append({
             "run_label": config.get("run_label", "base_run"),
             "series": label_name,
             "points": len(sdf),
+            "forecast_grain": forecast_grain,
+            "aggregation_method": aggregation_method,
             "missing_periods": continuity["missing_periods"],
             "forecast_periods": periods,
             "fc_mae": kpis.get("fc_mae"),
@@ -180,11 +280,18 @@ def _single_run(config):
             "trend_var_mean": variance_stats.get("trend_var_mean"),
             "seasonality_var_mean": variance_stats.get("seasonality_var_mean"),
             "event_var_mean": variance_stats.get("event_var_mean"),
+            "model_name":model_name
         })
+
         if config.get("rolling_forecast") and len(sdf) >= 18:
             print("\n  Rolling forecast:")
             roller = RollingForecaster(events_df, model_name=model_name)
-            roller.run(sdf, horizon=int(config.get("rolling_horizon", 3)), min_train=max(int(config.get("min_train", 12)), len(sdf) // 3), freq=engine.freq)
+            roller.run(
+                sdf,
+                horizon=int(config.get("rolling_horizon", 3)),
+                min_train=max(int(config.get("min_train", 12)), len(sdf) // 3),
+                freq=model_freq,
+            )
 
     sheets = {}
     if all_forecasts:
@@ -196,10 +303,28 @@ def _single_run(config):
     if all_scenarios:
         sheets["scenarios"] = pd.concat(all_scenarios, ignore_index=True)
         exporter.export_csv("scenarios", sheets["scenarios"])
-    if all_bfa:
-        sheets["bfa"] = pd.concat(all_bfa, ignore_index=True)
+        if all_bfa:
+         sheets["bfa"] = pd.concat(all_bfa, ignore_index=True)
         exporter.export_csv("budget_forecast_actual", sheets["bfa"])
         exporter.export_bfa_summary(sheets["bfa"])
+
+        if config.get("save_learning_history", True):
+            history_path = LearningEngine.append_history(
+                bfa=sheets["bfa"],
+                run_label=config.get("run_label", "base_run"),
+                output_dir=output_dir,
+                forecast_grain=config.get("forecast_grain", "monthly"),
+            )
+            print(f"Learning history saved: {history_path}")
+
+        learning_summary_df = LearningEngine.analyze_learning(sheets["bfa"])
+        learning_flags_df = LearningEngine.detect_bias_flags(learning_summary_df)
+
+        sheets["learning_summary"] = learning_summary_df
+        sheets["learning_flags"] = learning_flags_df
+
+        exporter.export_csv("learning_summary", learning_summary_df)
+        exporter.export_csv("learning_flags", learning_flags_df)
     if all_variances:
         sheets["variance"] = pd.concat(all_variances, ignore_index=True)
         exporter.export_csv("variance", sheets["variance"])
@@ -208,10 +333,13 @@ def _single_run(config):
         exporter.export_csv("calibration", sheets["calibration"])
     if sheets:
         exporter.export_excel_bundle(sheets)
+
     exporter.export_run_summary(run_summary)
+
     print(f"\nDone. Output: {output_dir}/")
     for f in sorted(os.listdir(output_dir)):
         print(f"  {f}")
+
     return {
         "run_label": config.get("run_label", "base_run"),
         "output_dir": output_dir,
@@ -219,7 +347,6 @@ def _single_run(config):
         "summary": run_summary,
         "sheets": list(sheets.keys()),
     }
-
 
 
 def run_pipeline(config):
@@ -253,13 +380,17 @@ def interactive_main():
     if not filepath or not os.path.exists(filepath):
         print(f"Not found: {filepath}")
         return
+
     engine = DataEngine(filepath)
     engine.load()
     engine.print_info()
+
     if not engine.value_cols:
         print("No numeric columns found.")
         return
+
     value_col = engine.value_cols[0] if len(engine.value_cols) == 1 else pick("Value column:", engine.value_cols)
+
     group_dims = []
     if engine.dimension_cols and inp("Group by dimensions? (y/n) [n]: ", "n").lower() == "y":
         print("Available dimensions:")
@@ -271,16 +402,23 @@ def interactive_main():
         elif dim_input:
             indices = [int(x.strip()) - 1 for x in dim_input.split(",")]
             group_dims = [engine.dimension_cols[i] for i in indices if 0 <= i < len(engine.dimension_cols)]
+
     model_choice = pick("Select model:", ["ensemble", "prophet", "sarima", "lightgbm", "naive"])
+    forecast_grain = pick("Forecast grain:", ["monthly", "weekly", "daily"])
+    aggregation_method = pick("Aggregation method:", ["sum", "mean", "last"])
+
     cfg = merge_config({
         "data_file": filepath,
         "value_column": value_col,
         "group_dims": group_dims,
         "model": model_choice,
         "periods": int(inp("Forecast periods [12]: ", "12")),
+        "forecast_grain": forecast_grain,
+        "aggregation_method": aggregation_method,
         "budget_adjustment_pct": float(inp("Budget adjustment % [0]: ", "0")),
         "output_dir": inp("Output dir [./output]: ", "./output"),
     })
+
     validate_config(cfg)
     run_pipeline(cfg)
 

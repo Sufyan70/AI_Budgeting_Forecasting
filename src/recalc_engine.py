@@ -63,7 +63,6 @@ class RecalculationEngine:
         safe_runs = []
         for run in runs:
             safe = copy.deepcopy(run)
-            # keep manifest concise and serializable
             for noisy_key in ["sheets", "forecast_df", "budget_df", "bfa_df", "scenario_df", "variance_df", "calibration_df"]:
                 safe.pop(noisy_key, None)
             safe_runs.append(safe)

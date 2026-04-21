@@ -1,0 +1,49 @@
+{
+  "data_file": "data/transactions.csv",
+  "value_column": "transactions",
+  "group_dims": [],
+  "model": "ensemble",
+  "periods": 6,
+  "forecast_grain": "monthly",
+  "aggregation_method": "sum",
+
+  "budget_seasonal_weight": 0.5,
+  "budget_rolling_weight": 0.3,
+  "budget_trend_weight": 0.2,
+  "budget_rolling_window": 6,
+  "save_learning_history": true,
+
+  "budget_adjustment_pct": 0.0,
+  "use_calibration": true,
+  "calibration_window": 6,
+
+  "scenario_growth_pct": 0.0,
+  "ramzan_uplift_pct": 0.0,
+  "event_uplift_pct": 0.0,
+  "management_override_pct": 0.0,
+  "churn_pct": 0.0,
+  "new_branch_pct": 0.0,
+  "management_target_pct": 0.0,
+
+  "rolling_forecast": false,
+  "rolling_horizon": 3,
+  "min_train": 12,
+
+  "output_dir": "output",
+  "run_label": "transactions_monthly_run",
+
+  "recalc": {
+    "enabled": false,
+    "assumption_sets": [],
+    "save_manifest": true
+  },
+
+  "events": {
+    "enabled": true,
+    "country": "PK",
+    "include_ramzan": true,
+    "include_eid": true,
+    "include_black_friday": false,
+    "custom_events": []
+  }
+}

@@ -176,3 +176,39 @@ class DataEngine:
                     print(f"  {d}: {vals}")
                 else:
                     print(f"  {d}: {len(vals)} unique values")
+def aggregate_series(df, date_col, value_col, group_dims=None, grain="monthly", method="sum"):
+    import pandas as pd
+
+    data = df.copy()
+    data[date_col] = pd.to_datetime(data[date_col], errors="coerce")
+    data = data.dropna(subset=[date_col])
+
+    group_dims = group_dims or []
+
+    if grain == "daily":
+        freq = "D"
+    elif grain == "weekly":
+        freq = "W-MON"
+    elif grain == "monthly":
+        freq = "MS"
+    else:
+        raise ValueError(f"Unsupported grain: {grain}")
+
+    if group_dims:
+        grouper = [pd.Grouper(key=date_col, freq=freq)] + group_dims
+    else:
+        grouper = [pd.Grouper(key=date_col, freq=freq)]
+
+    if method == "sum":
+        out = data.groupby(grouper, dropna=False)[value_col].sum().reset_index()
+    elif method == "mean":
+        out = data.groupby(grouper, dropna=False)[value_col].mean().reset_index()
+    elif method == "last":
+        sort_cols = [date_col] + group_dims if group_dims else [date_col]
+        data = data.sort_values(sort_cols)
+        out = data.groupby(grouper, dropna=False)[value_col].last().reset_index()
+    else:
+        raise ValueError(f"Unsupported aggregation method: {method}")
+
+    return out    
+    

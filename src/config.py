@@ -14,6 +14,13 @@ DEFAULT_CONFIG = {
     "group_dims": [],
     "model": "ensemble",
     "periods": 12,
+    "forecast_grain": "monthly",
+    "aggregation_method": "sum",
+    "budget_seasonal_weight": 0.5,
+    "budget_rolling_weight": 0.3,
+    "budget_trend_weight": 0.2,
+    "budget_rolling_window": 6,
+    "save_learning_history":True,   
     "budget_adjustment_pct": 0.0,
     "use_calibration": True,
     "calibration_window": 6,
@@ -68,4 +75,16 @@ def validate_config(config: dict) -> None:
     validate_model_name(config.get("model", "ensemble"))
     validate_group_dims(config.get("group_dims"))
     validate_event_inputs(config.get("events"))
+
+    grain = config.get("forecast_grain", "monthly")
+    if grain not in {"daily", "weekly", "monthly"}:
+        raise ValueError("config.forecast_grain must be one of: daily, weekly, monthly")
+
+    agg = config.get("aggregation_method", "sum")
+    if agg not in {"sum", "mean", "last"}:
+        raise ValueError("config.aggregation_method must be one of: sum, mean, last")
+    for k in ["budget_seasonal_weight", "budget_rolling_weight", "budget_trend_weight"]:
+        v = float(config.get(k, 0))
+        if v < 0:
+            raise ValueError(f"{k} must be >= 0")
     validate_assumptions(config)

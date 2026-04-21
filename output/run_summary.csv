@@ -1,2 +1,0 @@
-run_label,series,points,missing_periods,forecast_periods,fc_mae,fc_mape,budget_mae,budget_mape,calibration_multiplier,trend_var_mean,seasonality_var_mean,event_var_mean
-base_run,Total,1682,6,12,,,,,,50.706602397078534,-0.9737782016593372,-51.166631956205045
