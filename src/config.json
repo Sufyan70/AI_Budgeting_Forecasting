@@ -1,6 +1,6 @@
 {
-  "data_file": "data/transactions.csv",
-  "value_column": "transactions",
+  "data_file": "data/daily_gross_amount_and_members.csv",
+  "value_column": "gross_amount",
   "group_dims": [],
   "model": "ensemble",
   "periods": 6,
@@ -25,12 +25,12 @@
   "new_branch_pct": 0.0,
   "management_target_pct": 0.0,
 
-  "rolling_forecast": false,
+  "rolling_forecast": true,
   "rolling_horizon": 3,
   "min_train": 12,
 
   "output_dir": "output",
-  "run_label": "transactions_monthly_run",
+  "run_label": "gross_amount_monthly_run",
 
   "recalc": {
     "enabled": false,

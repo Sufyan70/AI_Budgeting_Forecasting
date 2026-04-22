@@ -150,7 +150,13 @@ def _single_run(config):
 
     # all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
     # run_summary = []
-    all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
+
+    # all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
+    # run_summary = []
+    # learning_summary_df = None
+    # learning_flags_df = None
+
+    all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration, all_rolling = [], [], [], [], [], [], []
     run_summary = []
     learning_summary_df = None
     learning_flags_df = None
@@ -286,12 +292,18 @@ def _single_run(config):
         if config.get("rolling_forecast") and len(sdf) >= 18:
             print("\n  Rolling forecast:")
             roller = RollingForecaster(events_df, model_name=model_name)
-            roller.run(
+            rolling_df = roller.run(
                 sdf,
                 horizon=int(config.get("rolling_horizon", 3)),
                 min_train=max(int(config.get("min_train", 12)), len(sdf) // 3),
                 freq=model_freq,
             )
+
+            if rolling_df is not None and len(rolling_df) > 0:
+                rolling_df = rolling_df.copy()
+                rolling_df["series"] = label_name
+                rolling_df["run_label"] = config.get("run_label", "base_run")
+                all_rolling.append(rolling_df)
 
     sheets = {}
     if all_forecasts:
@@ -333,8 +345,10 @@ def _single_run(config):
         exporter.export_csv("calibration", sheets["calibration"])
     if sheets:
         exporter.export_excel_bundle(sheets)
-
     exporter.export_run_summary(run_summary)
+    if all_rolling:
+        sheets["rolling_forecast"] = pd.concat(all_rolling, ignore_index=True)
+        exporter.export_csv("rolling_forecast", sheets["rolling_forecast"])
 
     print(f"\nDone. Output: {output_dir}/")
     for f in sorted(os.listdir(output_dir)):

@@ -1,0 +1,2 @@
+run_label,series,points,forecast_grain,aggregation_method,missing_periods,forecast_periods,fc_mae,fc_mape,budget_mae,budget_mape,calibration_multiplier,trend_var_mean,seasonality_var_mean,event_var_mean,model_name
+ui_run,Total,56,monthly,sum,0,12,3653.0903135657886,13.539854809373443,,,,279.4438110588295,3140.9525121846705,-694.8038206586991,ensemble

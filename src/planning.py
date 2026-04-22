@@ -38,8 +38,18 @@ class RollingForecaster:
                 else:
                     m.fit(train, freq)
                     pred = m.predict(horizon, train["ds"].max(), freq)
+                # for j in range(min(len(test), len(pred))):
+                #     results.append({"ds": test.iloc[j]["ds"], "actual": test.iloc[j]["y"], "forecast": pred.iloc[j]["yhat"]})
                 for j in range(min(len(test), len(pred))):
-                    results.append({"ds": test.iloc[j]["ds"], "actual": test.iloc[j]["y"], "forecast": pred.iloc[j]["yhat"]})
+                    results.append({
+                        "step_no": i + 1,
+                        "train_end_date": train["ds"].max(),
+                        "forecast_date": test.iloc[j]["ds"],
+                        "ds": test.iloc[j]["ds"],
+                        "actual": test.iloc[j]["y"],
+                        "forecast": pred.iloc[j]["yhat"],
+                        "horizon_step": j + 1,
+    })
             except Exception:
                 pass
         print()
