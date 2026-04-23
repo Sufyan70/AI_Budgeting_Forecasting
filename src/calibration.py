@@ -26,13 +26,21 @@ class ForecastCalibrator:
             return self.profile
         tail = merged.tail(self.window).copy()
         tail["residual"] = tail["y"] - tail["forecast_fit"]
-        tail["ratio"] = tail["y"] / tail["forecast_fit"].abs().clip(lower=1e-9)
+
         bias_add = float(tail["residual"].mean())
-        clean_ratio = tail["ratio"].replace([float("inf"), float("-inf")], pd.NA).dropna()
-        bias_ratio = float(clean_ratio.mean()) if len(clean_ratio) else 1.0
+
+        actual_sum = float(tail["y"].sum())
+        fitted_sum = float(tail["forecast_fit"].sum())
+
+        if fitted_sum <= 0:
+            bias_ratio = 1.0
+        else:
+            bias_ratio = actual_sum / fitted_sum
+
         if pd.isna(bias_ratio) or bias_ratio <= 0:
             bias_ratio = 1.0
-        bias_ratio = min(max(bias_ratio, 0.5), 1.5)
+
+        bias_ratio = min(max(float(bias_ratio), 0.7), 1.5)
 
         event_bias_ratio = 1.0
         event_bias_add = 0.0
@@ -44,9 +52,14 @@ class ForecastCalibrator:
             event_rows = tagged[tagged["is_event"]]
             if len(event_rows) >= self.min_history:
                 event_bias_add = float(event_rows["residual"].mean())
-                ev_ratio = event_rows["ratio"].replace([float("inf"), float("-inf")], pd.NA).dropna().mean()
-                if pd.notna(ev_ratio) and ev_ratio > 0:
-                    event_bias_ratio = float(min(max(ev_ratio, 0.5), 1.5))
+
+                event_actual_sum = float(event_rows["y"].sum())
+                event_fitted_sum = float(event_rows["forecast_fit"].sum())
+
+                if event_fitted_sum > 0:
+                    ev_ratio = event_actual_sum / event_fitted_sum
+                    if pd.notna(ev_ratio) and ev_ratio > 0:
+                        event_bias_ratio = float(min(max(ev_ratio, 0.7), 1.5))
 
         self.profile = {
             "bias_add": bias_add,
@@ -66,18 +79,32 @@ class ForecastCalibrator:
         out = forecast_df.copy()
         out["raw_forecast"] = out["yhat"]
         out["calibration_applied"] = 1
-        out["yhat"] = out["yhat"] * self.profile["bias_ratio"] + self.profile["bias_add"]
-        out["yhat_lower"] = out["yhat_lower"] * self.profile["bias_ratio"] + self.profile["bias_add"]
-        out["yhat_upper"] = out["yhat_upper"] * self.profile["bias_ratio"] + self.profile["bias_add"]
+        multiplier = float(self.profile.get("bias_ratio", 1.0))
+        bias_add = float(self.profile.get("bias_add", 0.0))
+
+        out["yhat"] = out["yhat"] * multiplier + bias_add
+
+        if "yhat_lower" in out.columns:
+            out["yhat_lower"] = out["yhat_lower"] * multiplier + bias_add
+
+        if "yhat_upper" in out.columns:
+            out["yhat_upper"] = out["yhat_upper"] * multiplier + bias_add
         if events_df is not None and len(events_df) > 0:
             ev = events_df[["ds", "holiday"]].copy()
             ev["ds"] = pd.to_datetime(ev["ds"])
             out = out.merge(ev.assign(_is_event=1), on="ds", how="left")
             mask = out["_is_event"].fillna(0).astype(int) == 1
             if mask.any():
-                out.loc[mask, "yhat"] = out.loc[mask, "raw_forecast"] * self.profile["event_bias_ratio"] + self.profile["event_bias_add"]
-                out.loc[mask, "yhat_lower"] = out.loc[mask, "yhat_lower"] * self.profile["event_bias_ratio"]
-                out.loc[mask, "yhat_upper"] = out.loc[mask, "yhat_upper"] * self.profile["event_bias_ratio"]
+                ev_mult = float(self.profile.get("event_bias_ratio", 1.0))
+                ev_add = float(self.profile.get("event_bias_add", 0.0))
+
+                out.loc[mask, "yhat"] = out.loc[mask, "raw_forecast"] * ev_mult + ev_add
+
+                if "yhat_lower" in out.columns:
+                    out.loc[mask, "yhat_lower"] = out.loc[mask, "yhat_lower"] * ev_mult + ev_add
+
+                if "yhat_upper" in out.columns:
+                    out.loc[mask, "yhat_upper"] = out.loc[mask, "yhat_upper"] * ev_mult + ev_add
             out = out.drop(columns=[c for c in ["holiday", "_is_event"] if c in out.columns])
         return out
 
@@ -90,4 +117,5 @@ class ForecastCalibrator:
             "bias_add": round(float(profile.get("bias_add", 0.0)), 4),
             "bias_ratio": round(float(profile.get("bias_ratio", 1.0)), 4),
             "event_bias_ratio": round(float(profile.get("event_bias_ratio", 1.0)), 4),
+            "final_multiplier": round(float(profile.get("bias_ratio", 1.0)), 4),
         }

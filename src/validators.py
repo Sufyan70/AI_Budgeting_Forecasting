@@ -62,14 +62,45 @@ def validate_group_dims(group_dims) -> None:
 def validate_event_inputs(events_cfg: dict | None) -> None:
     if not events_cfg:
         return
+
+    for key in ["enabled", "include_ramzan", "include_eid", "include_black_friday"]:
+        if key in events_cfg and not isinstance(events_cfg[key], bool):
+            raise ValueError(f"events.{key} must be True or False")
+
+    if "country" in events_cfg and not isinstance(events_cfg["country"], str):
+        raise ValueError("events.country must be a string")
+
     custom = events_cfg.get("custom_events", [])
     if not isinstance(custom, list):
         raise ValueError("events.custom_events must be a list")
+
     for idx, row in enumerate(custom):
         if not isinstance(row, dict):
             raise ValueError(f"custom event #{idx + 1} must be an object")
-        if "name" not in row or "start" not in row:
-            raise ValueError(f"custom event #{idx + 1} must include name and start")
+
+        if "name" not in row:
+            raise ValueError(f"custom event #{idx + 1} must include 'name'")
+
+        start = row.get("start_date", row.get("start"))
+        end = row.get("end_date", row.get("end", start))
+
+        if start is None:
+            raise ValueError(f"custom event #{idx + 1} must include start_date/start")
+
+        try:
+            start_dt = pd.to_datetime(start)
+        except Exception as exc:
+            raise ValueError(f"custom event #{idx + 1} has invalid start date: {start}") from exc
+
+        try:
+            end_dt = pd.to_datetime(end)
+        except Exception as exc:
+            raise ValueError(f"custom event #{idx + 1} has invalid end date: {end}") from exc
+
+        if end_dt < start_dt:
+            raise ValueError(
+                f"custom event #{idx + 1} has end date before start date"
+            )
 
 
 

@@ -72,6 +72,7 @@ def validate_config(config: dict) -> None:
     ensure_file_exists(config.get("data_file", ""))
     if int(config.get("periods", 0)) <= 0:
         raise ValueError("config.periods must be > 0")
+
     validate_model_name(config.get("model", "ensemble"))
     validate_group_dims(config.get("group_dims"))
     validate_event_inputs(config.get("events"))
@@ -83,8 +84,18 @@ def validate_config(config: dict) -> None:
     agg = config.get("aggregation_method", "sum")
     if agg not in {"sum", "mean", "last"}:
         raise ValueError("config.aggregation_method must be one of: sum, mean, last")
+
     for k in ["budget_seasonal_weight", "budget_rolling_weight", "budget_trend_weight"]:
         v = float(config.get(k, 0))
         if v < 0:
             raise ValueError(f"{k} must be >= 0")
+
+    total_budget_weight = (
+        float(config.get("budget_seasonal_weight", 0))
+        + float(config.get("budget_rolling_weight", 0))
+        + float(config.get("budget_trend_weight", 0))
+    )
+    if total_budget_weight <= 0:
+        raise ValueError("At least one budget weight must be greater than 0")
+
     validate_assumptions(config)
