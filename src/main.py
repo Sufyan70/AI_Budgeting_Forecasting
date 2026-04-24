@@ -148,25 +148,24 @@ def _single_run(config):
 
             series_list.append((label_name, sdf))
 
-    # all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
-    # run_summary = []
-
-    # all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration = [], [], [], [], [], []
-    # run_summary = []
-    # learning_summary_df = None
-    # learning_flags_df = None
-
-    all_forecasts, all_budgets, all_bfa, all_scenarios, all_variances, all_calibration, all_rolling = [], [], [], [], [], [], []
+    all_forecasts = []
+    all_budgets = []
+    all_bfa = []
+    all_scenarios = []
+    all_variances = []
+    all_calibration = []
+    all_rolling = []
     run_summary = []
-    learning_summary_df = None
-    learning_flags_df = None
+
     print(f"\nSeries to forecast: {len(series_list)}")
     print(f"Forecast grain: {forecast_grain} | Aggregation: {aggregation_method}")
 
     for label_name, sdf in series_list:
         print(f"\n--- {label_name} ---")
+
         info = engine.analyze(sdf)
         continuity = engine.validate_time_continuity(sdf, freq=model_freq)
+
         print(
             f"  Points: {info['n']} | Mean: {info['mean']:,.2f} | "
             f"Trend: {info['trend_pct']:+.1f}% | Missing periods: {continuity['missing_periods']}"
@@ -184,25 +183,36 @@ def _single_run(config):
         periods = int(config.get("periods", 12))
 
         _, fc, fitted = fit_model(model_name, sdf, model_freq, periods, events_df)
+
+        
+        calibration_profile = None
+        fitted_eval = fitted.copy() if fitted is not None else None
+
+        if config.get("use_calibration", True) and fitted is not None and len(fitted) > 0:
+            calibrator = ForecastCalibrator(window=int(config.get("calibration_window", 6)))
+            calibration_profile = calibrator.fit_calibrator(sdf, fitted, events_df)
+
+            fc = calibrator.apply_calibration(fc, events_df)
+
+            fitted_eval = calibrator.apply_calibration(fitted.copy(), events_df)
+
+            row = ForecastCalibrator.calibration_summary(calibration_profile)
+            row["series"] = label_name
+            all_calibration.append(pd.DataFrame([row]))
+            print(f"  Calibration: {row}")
+
+      
         hist_fc = None
-        if fitted is not None and len(fitted) > 0:
-            hist_fc = fitted.copy()
+        hist_source = fitted_eval if fitted_eval is not None and len(fitted_eval) > 0 else fitted
+
+        if hist_source is not None and len(hist_source) > 0:
+            hist_fc = hist_source.copy()
             if "yhat" not in hist_fc.columns:
                 if "forecast" in hist_fc.columns:
                     hist_fc = hist_fc.rename(columns={"forecast": "yhat"})
                 elif "y" in hist_fc.columns:
                     hist_fc["yhat"] = hist_fc["y"]
             hist_fc["series"] = label_name
-
-        calibration_profile = None
-        if config.get("use_calibration", True) and fitted is not None and len(fitted) > 0:
-            calibrator = ForecastCalibrator(window=int(config.get("calibration_window", 6)))
-            calibration_profile = calibrator.fit_calibrator(sdf, fitted, events_df)
-            fc = calibrator.apply_calibration(fc, events_df)
-            row = ForecastCalibrator.calibration_summary(calibration_profile)
-            row["series"] = label_name
-            all_calibration.append(pd.DataFrame([row]))
-            print(f"  Calibration: {row}")
 
         fc["series"] = label_name
         all_forecasts.append(fc)
@@ -233,6 +243,7 @@ def _single_run(config):
             churn_pct=config.get("churn_pct", 0.0),
             new_branch_pct=config.get("new_branch_pct", 0.0),
         )
+
         for sname, sc in scenarios.items():
             sc2 = sc.copy()
             sc2["series"] = label_name
@@ -246,15 +257,20 @@ def _single_run(config):
             rolling_weight=config.get("budget_rolling_weight", 0.3),
             trend_weight=config.get("budget_trend_weight", 0.2),
             rolling_window=config.get("budget_rolling_window", 6),
-)
+        )
+
         budget["series"] = label_name
         all_budgets.append(budget)
 
+       
         variance_stats = {}
-        if fitted is not None and len(fitted) > 0:
-            variance_df, variance_stats = VarianceAnalyzer.run(sdf, fitted, budget)
+        variance_source = fitted_eval if fitted_eval is not None and len(fitted_eval) > 0 else fitted
+
+        if variance_source is not None and len(variance_source) > 0:
+            variance_df, variance_stats = VarianceAnalyzer.run(sdf, variance_source, budget)
             variance_df["series"] = label_name
             all_variances.append(variance_df)
+
             print(f"  Fit accuracy -> MAE: {variance_stats['fc_mae']:,.2f} | MAPE: {variance_stats['fc_mape']:.1f}%")
             print(
                 f"  Variance drivers -> Trend: {variance_stats['trend_var_mean']:,.2f} | "
@@ -262,7 +278,6 @@ def _single_run(config):
                 f"Event: {variance_stats['event_var_mean']:,.2f}"
             )
 
-        # bfa = merge_bfa(sdf, fc, budget, series_key=label_name)
         bfa = merge_bfa(sdf, bfa_forecast, budget, series_key=label_name)
         all_bfa.append(bfa)
 
@@ -286,7 +301,7 @@ def _single_run(config):
             "trend_var_mean": variance_stats.get("trend_var_mean"),
             "seasonality_var_mean": variance_stats.get("seasonality_var_mean"),
             "event_var_mean": variance_stats.get("event_var_mean"),
-            "model_name":model_name
+            "model_name": model_name,
         })
 
         if config.get("rolling_forecast") and len(sdf) >= 18:
@@ -306,17 +321,21 @@ def _single_run(config):
                 all_rolling.append(rolling_df)
 
     sheets = {}
+
     if all_forecasts:
         sheets["forecast"] = pd.concat(all_forecasts, ignore_index=True)
         exporter.export_csv("forecast", sheets["forecast"])
+
     if all_budgets:
         sheets["budget"] = pd.concat(all_budgets, ignore_index=True)
         exporter.export_csv("budget", sheets["budget"])
+
     if all_scenarios:
         sheets["scenarios"] = pd.concat(all_scenarios, ignore_index=True)
         exporter.export_csv("scenarios", sheets["scenarios"])
-        if all_bfa:
-         sheets["bfa"] = pd.concat(all_bfa, ignore_index=True)
+
+    if all_bfa:
+        sheets["bfa"] = pd.concat(all_bfa, ignore_index=True)
         exporter.export_csv("budget_forecast_actual", sheets["bfa"])
         exporter.export_bfa_summary(sheets["bfa"])
 
@@ -337,18 +356,23 @@ def _single_run(config):
 
         exporter.export_csv("learning_summary", learning_summary_df)
         exporter.export_csv("learning_flags", learning_flags_df)
+
     if all_variances:
         sheets["variance"] = pd.concat(all_variances, ignore_index=True)
         exporter.export_csv("variance", sheets["variance"])
+
     if all_calibration:
         sheets["calibration"] = pd.concat(all_calibration, ignore_index=True)
         exporter.export_csv("calibration", sheets["calibration"])
-    if sheets:
-        exporter.export_excel_bundle(sheets)
-    exporter.export_run_summary(run_summary)
+
     if all_rolling:
         sheets["rolling_forecast"] = pd.concat(all_rolling, ignore_index=True)
         exporter.export_csv("rolling_forecast", sheets["rolling_forecast"])
+
+    if sheets:
+        exporter.export_excel_bundle(sheets)
+
+    exporter.export_run_summary(run_summary)
 
     print(f"\nDone. Output: {output_dir}/")
     for f in sorted(os.listdir(output_dir)):

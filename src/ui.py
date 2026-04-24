@@ -10,7 +10,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from app_service import run_forecasting_app
-
+from datetime import date
 
 st.set_page_config(page_title="AI Budgeting & Forecasting", layout="wide")
 
@@ -125,14 +125,38 @@ with st.sidebar:
     )
 
     st.subheader("Events")
+
     include_ramzan = st.checkbox("Include Ramzan", value=True)
     include_eid = st.checkbox("Include Eid", value=True)
 
-    custom_events_text = st.text_area(
-        "Custom Events (optional)",
-        placeholder="Format:\nSummer Campaign | 2026-06-01 | 2026-06-10\nMega Sale | 2026-11-20",
-        height=120,
-    )
+    if "custom_events" not in st.session_state:
+        st.session_state["custom_events"] = []
+
+    with st.expander("Add Custom Events", expanded=False):
+        event_name = st.text_input("Event Name", placeholder="Summer Campaign")
+        event_start = st.date_input("Start Date", value=date.today())
+        event_end = st.date_input("End Date", value=date.today())
+
+        if st.button("Add Event"):
+            if not event_name.strip():
+                st.warning("Please enter an event name.")
+            elif event_end < event_start:
+                st.warning("End date cannot be before start date.")
+            else:
+                st.session_state["custom_events"].append({
+                    "name": event_name.strip(),
+                    "start_date": event_start.isoformat(),
+                    "end_date": event_end.isoformat(),
+                })
+                st.success("Event added.")
+
+        if st.session_state["custom_events"]:
+            st.markdown("**Added Events**")
+            st.dataframe(pd.DataFrame(st.session_state["custom_events"]), use_container_width=True)
+
+            if st.button("Clear Events"):
+                st.session_state["custom_events"] = []
+                st.success("Custom events cleared.")
 
 
 if uploaded_file is not None:
@@ -149,10 +173,11 @@ if uploaded_file is not None:
         else:
             value_column = st.selectbox("Business Metric", numeric_cols)
 
-            if st.button("Run Forecast", type="primary"):
-                with st.spinner("Running forecasting pipeline... please wait."):
+            if st.button("Run Model", type="primary"):
+                with st.spinner("Running budget forecasting Model... please wait."):
                     saved_path = save_uploaded_file(uploaded_file)
-                    custom_events = parse_custom_events(custom_events_text)
+                    # custom_events = parse_custom_events(custom_events_text)
+                    custom_events = st.session_state.get("custom_events", [])
 
                     result = run_forecasting_app(
                         data_file=saved_path,
@@ -170,7 +195,7 @@ if uploaded_file is not None:
                     st.session_state["output_dir"] = result["output_dir"]
                     st.session_state["run_label"] = result["run_label"]
 
-                st.success("Forecasting pipeline completed successfully.")
+                st.success("Automate Budgeting & Forecasting completed successfully.")
 
         if "output_dir" in st.session_state:
             out_dir = st.session_state["output_dir"]
@@ -187,170 +212,148 @@ if uploaded_file is not None:
             scenarios_df = read_output_csv(out_dir, "scenarios")
             rolling_df = read_output_csv(out_dir, "rolling_forecast")
 
-            st.subheader("Run Summary")
-            st.info(f"Run Label: {run_label}")
+            st.subheader("Dashboard")
+            st.caption(
+                    f"Metric: {value_column} | Horizon: {forecast_period} months | "
+                    f"Breakdown: {breakdown_level} | "
+                    f"Events: Ramzan={'On' if include_ramzan else 'Off'}, "
+                    f"Eid={'On' if include_eid else 'Off'}, "
+                    f"Custom={len(st.session_state.get('custom_events', []))}"
+            )
 
-            # KPI cards
+            # KPI values
             forecast_mae = safe_mean(learning_summary_df, "forecast_mae")
             forecast_bias = safe_mean(learning_summary_df, "forecast_bias_pct")
             latest_budget = safe_latest(budget_df, "budget")
             latest_forecast = safe_latest(forecast_df, "yhat")
 
+            def fmt_money(value):
+                if value is None:
+                    return "N/A"
+                return f"{value / 1_000_000:.2f}M"
+
+            def fmt_pct(value):
+                if value is None:
+                    return "N/A"
+                return f"{value:.1f}%"
+
             c1, c2, c3, c4 = st.columns(4)
 
             with c1:
-                st.metric("Forecast MAE", f"{forecast_mae:,.0f}" if forecast_mae is not None else "N/A")
+                st.metric("Latest Forecast", fmt_money(latest_forecast))
 
             with c2:
-                st.metric("Forecast Bias %", f"{forecast_bias:.1f}%" if forecast_bias is not None else "N/A")
+                st.metric("Latest Budget", fmt_money(latest_budget))
 
             with c3:
-                st.metric("Latest Forecast", f"{latest_forecast:,.0f}" if latest_forecast is not None else "N/A")
+                st.metric("Forecast MAE", fmt_money(forecast_mae))
 
             with c4:
-                st.metric("Latest Budget", f"{latest_budget:,.0f}" if latest_budget is not None else "N/A")
+                st.metric("Forecast Bias", fmt_pct(forecast_bias))
 
-            # Insights
-            st.subheader("Insights")
-            msgs = get_learning_message(learning_flags_df)
-            if msgs:
-                for msg in msgs:
-                    st.warning(msg)
+            st.markdown("### Key Insights")
+
+            insight_msgs = get_learning_message(learning_flags_df)
+
+            if forecast_bias is not None:
+                if forecast_bias > 15:
+                    insight_msgs.append(
+                        "Forecast has historically been conservative. Actuals were higher than forecast."
+                    )
+                elif forecast_bias < -15:
+                    insight_msgs.append(
+                        "Forecast has historically been aggressive. Actuals were lower than forecast."
+                    )
+                else:
+                    insight_msgs.append("Forecast bias is within a reasonable range.")
+
+            if insight_msgs:
+                for msg in insight_msgs[:4]:
+                    st.info(msg)
             else:
-                st.info("No learning insights available yet.")
+                st.info("No major risks detected from the latest run.")
 
-            tabs = st.tabs([
-                "Overview",
-                "Forecast",
-                "Budget vs Forecast vs Actual",
-                "Budget",
-                "Variance",
-                "Learning Insights",
-                "Scenarios",
-                "Rolling Forecast",
-                "Downloads",
-            ])
+            col1, col2 = st.columns(2)
 
-            with tabs[0]:
-                col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### Forecast Trend")
+                if forecast_df is not None and "ds" in forecast_df.columns and "yhat" in forecast_df.columns:
+                    chart_df = forecast_df.copy()
+                    chart_df["ds"] = pd.to_datetime(chart_df["ds"])
+                    chart_df = chart_df.sort_values("ds").set_index("ds")
+                    st.line_chart(chart_df["yhat"])
+                else:
+                    st.info("Forecast chart not available.")
 
-                with col1:
-                    st.markdown("### Forecast Trend")
-                    if forecast_df is not None and "ds" in forecast_df.columns and "yhat" in forecast_df.columns:
-                        chart_df = forecast_df.copy()
-                        chart_df["ds"] = pd.to_datetime(chart_df["ds"])
-                        chart_df = chart_df.sort_values("ds")
-                        st.line_chart(chart_df.set_index("ds")["yhat"])
-                    else:
-                        st.info("No forecast chart available.")
+            with col2:
+                st.markdown("### Budget vs Forecast")
+                if budget_df is not None and forecast_df is not None:
+                    b = budget_df.copy()
+                    f = forecast_df.copy()
 
-                with col2:
-                    st.markdown("### Budget vs Forecast")
-                    if budget_df is not None and forecast_df is not None:
-                        b = budget_df.copy()
-                        f = forecast_df.copy()
-                        if "ds" in b.columns and "ds" in f.columns and "budget" in b.columns and "yhat" in f.columns:
-                            b["ds"] = pd.to_datetime(b["ds"])
-                            f["ds"] = pd.to_datetime(f["ds"])
-                            merged = b.merge(f[["ds", "yhat"]], on="ds", how="inner")
-                            if len(merged) > 0:
-                                merged = merged.sort_values("ds").set_index("ds")[["budget", "yhat"]]
-                                st.line_chart(merged)
-                            else:
-                                st.info("No merged budget/forecast data available.")
+                    if "ds" in b.columns and "ds" in f.columns and "budget" in b.columns and "yhat" in f.columns:
+                        b["ds"] = pd.to_datetime(b["ds"])
+                        f["ds"] = pd.to_datetime(f["ds"])
+
+                        merged = b.merge(f[["ds", "yhat"]], on="ds", how="inner")
+                        if len(merged) > 0:
+                            merged = merged.sort_values("ds").set_index("ds")
+                            merged = merged.rename(columns={"yhat": "forecast"})
+                            st.line_chart(merged[["budget", "forecast"]])
                         else:
-                            st.info("Budget/forecast chart columns missing.")
+                            st.info("Budget vs Forecast chart not available.")
                     else:
-                        st.info("Budget or forecast data not found.")
-
-            with tabs[1]:
-                if forecast_df is not None:
-                    st.dataframe(forecast_df, use_container_width=True)
+                        st.info("Budget vs Forecast chart columns missing.")
                 else:
-                    st.info("forecast.csv not found.")
+                    st.info("Budget or forecast data not found.")
 
-            with tabs[2]:
-                if bfa_df is not None:
-                    st.dataframe(bfa_df, use_container_width=True)
-                else:
-                    st.info("BvFvA output not found.")
+            st.markdown("### Monthly Planning Summary")
 
-            with tabs[3]:
-                if budget_df is not None:
-                    st.dataframe(budget_df, use_container_width=True)
-                else:
-                    st.info("budget.csv not found.")
+            if bfa_df is not None:
+                display_df = bfa_df.copy()
 
-            with tabs[4]:
-                if variance_df is not None:
-                    st.dataframe(variance_df, use_container_width=True)
-
-                    if "ds" in variance_df.columns and "fc_var_pct" in variance_df.columns:
-                        chart_df = variance_df.copy()
-                        chart_df["ds"] = pd.to_datetime(chart_df["ds"])
-                        chart_df = chart_df.sort_values("ds").set_index("ds")
-                        st.markdown("### Forecast Variance % Trend")
-                        st.line_chart(chart_df["fc_var_pct"])
-                else:
-                    st.info("variance.csv not found.")
-
-            with tabs[5]:
-                if learning_summary_df is not None:
-                    st.markdown("### Learning Summary")
-                    st.dataframe(learning_summary_df, use_container_width=True)
-
-                if learning_flags_df is not None:
-                    st.markdown("### Learning Flags")
-                    st.dataframe(learning_flags_df, use_container_width=True)
-
-                if learning_summary_df is None and learning_flags_df is None:
-                    st.info("No learning outputs found.")
-
-            with tabs[6]:
-                if scenarios_df is not None:
-                    st.dataframe(scenarios_df, use_container_width=True)
-                else:
-                    st.info("scenarios.csv not found.")
-
-            with tabs[7]:
-                if rolling_df is not None:
-                    st.dataframe(rolling_df, use_container_width=True)
-
-                    if "forecast_date" in rolling_df.columns and "pct_error" in rolling_df.columns:
-                        rdf = rolling_df.copy()
-                        rdf["forecast_date"] = pd.to_datetime(rdf["forecast_date"])
-                        rdf = rdf.sort_values("forecast_date").set_index("forecast_date")
-                        st.markdown("### Rolling Forecast Error %")
-                        st.line_chart(rdf["pct_error"])
-                else:
-                    st.info("rolling_forecast.csv not found.")
-
-            with tabs[8]:
-                files_to_offer = [
-                    ("planning_bundle.xlsx", "Download Excel Bundle"),
-                    ("forecast.csv", "Download Forecast CSV"),
-                    ("budget.csv", "Download Budget CSV"),
-                    ("budget_forecast_actual_monthly.csv", "Download Monthly BvFvA CSV"),
-                    ("variance.csv", "Download Variance CSV"),
-                    ("learning_summary.csv", "Download Learning Summary CSV"),
-                    ("learning_flags.csv", "Download Learning Flags CSV"),
+                preferred_cols = [
+                    "period",
+                    "series",
+                    "actual",
+                    "forecast",
+                    "budget",
+                    "actual_vs_forecast",
+                    "actual_vs_budget",
+                    "budget_vs_forecast",
                 ]
 
-                any_file = False
-                for fname, label in files_to_offer:
-                    fpath = Path(out_dir) / fname
-                    if fpath.exists():
-                        any_file = True
-                        with open(fpath, "rb") as f:
-                            st.download_button(
-                                label=label,
-                                data=f.read(),
-                                file_name=fname,
-                                mime="application/octet-stream",
-                            )
+                cols = [c for c in preferred_cols if c in display_df.columns]
+                display_df = display_df[cols]
 
-                if not any_file:
-                    st.info("No downloadable files found.")
+                display_df = display_df.rename(columns={
+                    "period": "Month",
+                    "series": "Segment",
+                    "actual": "Actual",
+                    "forecast": "Forecast",
+                    "budget": "Budget",
+                    "actual_vs_forecast": "Actual vs Forecast",
+                    "actual_vs_budget": "Actual vs Budget",
+                    "budget_vs_forecast": "Budget vs Forecast",
+                })
+
+                st.dataframe(display_df, use_container_width=True)
+            else:
+                st.info("Monthly planning summary not available.")
+
+            st.markdown("### Export")
+
+            excel_path = Path(out_dir) / "planning_bundle.xlsx"
+            if excel_path.exists():
+                with open(excel_path, "rb") as f:
+                    st.download_button(
+                        label="Download Excel Report",
+                        data=f.read(),
+                        file_name="planning_bundle.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+            else:
+                st.info("Excel report not available.")
 
     except Exception as e:
         st.error(f"Run failed: {e}")
